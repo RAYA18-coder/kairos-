@@ -1,0 +1,17 @@
+{
+  "name": "KAIROS — Your attention, simulated.",
+  "short_name": "KAIROS",
+  "description": "Personal Attention Digital Twin modeling focus, fatigue, and counterfactual interruption simulations.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050608",
+  "theme_color": "#050608",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

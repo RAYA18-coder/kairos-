@@ -1,0 +1,46 @@
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-dark: #050608;
+    --text-primary: #e6e8eb;
+    --text-secondary: #8a8f98;
+    --accent-lime: #C6FF3D;
+    --accent-coral: #FF6B4A;
+  }
+
+  body {
+    background-color: #050608;
+    color: #e6e8eb;
+    font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* Support tabular figures for precision data */
+  .tabular-nums {
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom scrollbar hiding */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Safe area padding utilities */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 20px);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 20px);
+}

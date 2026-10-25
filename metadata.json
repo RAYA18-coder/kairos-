@@ -1,0 +1,6 @@
+{
+  "name": "KAIROS",
+  "description": "KAIROS — Your attention, simulated. A personal attention digital twin modeling cognitive focus, fatigue, and counterfactual interruption simulations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
