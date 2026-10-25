@@ -1,0 +1,7 @@
+{
+  "appId": "com.shrii.kairos",
+  "appName": "KAIROS",
+  "webDir": "dist",
+  "server": { "androidScheme": "https" },
+  "android": { "backgroundColor": "#14121A" }
+}
