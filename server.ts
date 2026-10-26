@@ -26,6 +26,15 @@ const ai = new GoogleGenAI({
   },
 });
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs = 4000): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('AI request timed out')), timeoutMs)
+    ),
+  ]);
+}
+
 // Deterministic What-If Regex Fallback Parser
 function deterministicParseWhatIf(text: string) {
   const lower = text.toLowerCase();
@@ -112,26 +121,28 @@ Supported activity values: "coding", "studying", "reading", "writing", "idle"
 Hour should be an integer from 0 to 23.
 senderImportance should be a float from 0.0 to 1.0.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            appName: { type: Type.STRING },
-            notifType: { type: Type.STRING },
-            hour: { type: Type.INTEGER },
-            activity: { type: Type.STRING },
-            senderImportance: { type: Type.NUMBER },
-            title: { type: Type.STRING },
-            body: { type: Type.STRING },
+    const response = await withTimeout(
+      ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              appName: { type: Type.STRING },
+              notifType: { type: Type.STRING },
+              hour: { type: Type.INTEGER },
+              activity: { type: Type.STRING },
+              senderImportance: { type: Type.NUMBER },
+              title: { type: Type.STRING },
+              body: { type: Type.STRING },
+            },
+            required: ['appName', 'notifType', 'hour', 'activity', 'senderImportance', 'title', 'body'],
           },
-          required: ['appName', 'notifType', 'hour', 'activity', 'senderImportance', 'title', 'body'],
         },
-      },
-    });
+      })
+    );
 
     const parsed = JSON.parse(response.text || '{}');
     return res.json({
@@ -178,10 +189,12 @@ CRITICAL INTEGRITY REQUIREMENT: You MUST strictly quote the computed engine numb
 
 Do NOT invent any numbers. Do NOT include preambles or greetings.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-    });
+    const response = await withTimeout(
+      ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+      })
+    );
 
     const text = response.text?.trim() || fallback;
     return res.json({ explanation: text, source: 'gemini' });
@@ -227,10 +240,12 @@ Strictly quote these engine empirical numbers:
 
 Tone: High-agency, scientific, respectful of human attention, zero guilt.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-    });
+    const response = await withTimeout(
+      ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+      })
+    );
 
     const text = response.text?.trim() || fallback;
     return res.json({ narrative: text, source: 'gemini' });

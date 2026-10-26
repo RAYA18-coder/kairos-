@@ -290,11 +290,27 @@ export function runAllVerifications(): { passed: boolean; results: CheckItem[] }
 
   results.push({
     id: 10,
-    name: 'Zero Canned / Typed Fallback Numbers in Engine',
+    name: 'No Placeholder Markers (TODO / FIXME / LOREM / mock data) in Engine',
     passed: chk10Passed,
     details: chk10Passed
-      ? 'Verified: All values fitted directly from logs via statistical regression & MLE.'
+      ? 'Verified: no placeholder markers in engine files. (Documented policy constants are listed on the Proof tab.)'
       : `Violations found in: ${chk10Violations.join(', ')}`,
+  });
+
+
+  // Check 11: paired savings must not be clamped to a positive floor, and the simulator must not be given a typed branch default
+  const simSrc = fs.readFileSync(path.join(engineDir, 'simulator.ts'), 'utf-8');
+  const floorFound = /Math\.max\(\s*[0-9.]+\s*,\s*focusLossA\s*-\s*focusLossB\s*\)/.test(simSrc) ||
+    /Math\.max\(\s*[0-9.]+\s*,\s*resumeA\s*-\s*resumeB\s*\)/.test(simSrc);
+  const typedBranchDefault = /pGlanceGivenOpen\s*=\s*0\.[0-9]+;/.test(simSrc.split('for (let r = 0;')[0] || '');
+  const chk11Passed = !floorFound && !typedBranchDefault;
+  results.push({
+    id: 11,
+    name: 'Counterfactual Not Floored (negative savings possible) + Learned Branch Fallback',
+    passed: chk11Passed,
+    details: chk11Passed
+      ? 'Verified: paired focus/resume savings are unclamped and the branch fallback is pooled from learned buckets.'
+      : `Violation: ${floorFound ? 'positive floor on paired savings' : ''} ${typedBranchDefault ? 'typed branch default' : ''}`.trim(),
   });
 
   const allPassed = results.every((r) => r.passed);
@@ -304,7 +320,7 @@ export function runAllVerifications(): { passed: boolean; results: CheckItem[] }
 // Standalone execution when run via `npm run verify`
 if (process.argv[1]?.includes('verify')) {
   console.log('\n================================================================');
-  console.log('       KAIROS STATISTICAL ENGINE: 10-INVARIANT AUDIT');
+  console.log('       KAIROS STATISTICAL ENGINE: 11-INVARIANT AUDIT');
   console.log('================================================================\n');
 
   const { passed, results } = runAllVerifications();
@@ -317,7 +333,7 @@ if (process.argv[1]?.includes('verify')) {
 
   console.log('----------------------------------------------------------------');
   if (passed) {
-    console.log('\x1b[32m✔ ALL 10 INVARIANTS PASSED VERIFICATION WITH ZERO VIOLATIONS.\x1b[0m\n');
+    console.log('\x1b[32m✔ ALL 11 INVARIANTS PASSED VERIFICATION WITH ZERO VIOLATIONS.\x1b[0m\n');
     process.exit(0);
   } else {
     console.log('\x1b[31m✖ ONE OR MORE VERIFICATION INVARIANTS FAILED.\x1b[0m\n');

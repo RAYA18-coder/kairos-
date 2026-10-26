@@ -3,134 +3,106 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useKairosStore } from '../store/useKairosStore';
-import { ShieldCheck, Play, Square, Eye, EyeOff, Plus, Sparkles } from 'lucide-react';
-import { triggerHaptic } from '../lib/haptics';
+import { Settings, Sun, Moon, Shield, Sparkles, ChevronDown } from 'lucide-react';
+import { PersonaModal } from './ui/PersonaModal';
 
 export const Header: React.FC = () => {
-  const activePersona = useKairosStore((s) => s.activePersona);
-  const quietMode = useKairosStore((s) => s.quietMode);
-  const isGuidedDemoRunning = useKairosStore((s) => s.isGuidedDemoRunning);
-  const guidedDemoStep = useKairosStore((s) => s.guidedDemoStep);
-  const setCurrentView = useKairosStore((s) => s.setCurrentView);
-  const setQuietMode = useKairosStore((s) => s.setQuietMode);
+  const role = useKairosStore((s) => s.role);
+  const theme = useKairosStore((s) => s.theme);
+  const setTheme = useKairosStore((s) => s.setTheme);
+  const isSettingsOpen = useKairosStore((s) => s.isSettingsOpen);
+  const setIsSettingsOpen = useKairosStore((s) => s.setIsSettingsOpen);
   const startGuidedDemo = useKairosStore((s) => s.startGuidedDemo);
-  const stopGuidedDemo = useKairosStore((s) => s.stopGuidedDemo);
-  const setActivePersona = useKairosStore((s) => s.setActivePersona);
+  const isGuidedDemoRunning = useKairosStore((s) => s.isGuidedDemoRunning);
+  const aiOnline = useKairosStore((s) => s.aiOnline);
+  const activePersona = useKairosStore((s) => s.activePersona);
 
-  const personas = [
-    { id: 'arjun', label: 'Arjun' },
-    { id: 'meera', label: 'Meera' },
-    { id: 'kabir', label: 'Kabir' },
-    { id: 'you', label: 'You' },
-  ] as const;
+  const [isPersonaModalOpen, setIsPersonaModalOpen] = useState(false);
+
+  const personaNames: Record<string, string> = {
+    arjun: 'Arjun · Coder',
+    meera: 'Meera · Creator',
+    kabir: 'Kabir · Student',
+    rohan: 'Rohan · Founder',
+  };
 
   return (
-    <header className="relative z-30 pt-safe px-4 pb-2 border-b border-white/[0.06] bg-[#050608]/80 backdrop-blur-md">
-      <div className="flex items-center justify-between gap-2">
-        {/* Brand & Persona badge */}
-        <div>
-          <button
-            onClick={() => {
-              triggerHaptic('light');
-              setCurrentView('landing');
-            }}
-            className="flex items-center gap-2 group text-left"
-            title="View KAIROS Mission & Story"
-          >
-            <span className="font-sans font-light tracking-[0.2em] text-sm text-white font-medium uppercase group-hover:text-[#C6FF3D] transition-colors">
-              KAIROS
+    <>
+      <header className="sticky top-0 z-30 w-full glass-nav px-4 py-3 flex items-center justify-between border-b border-[#7FE3C0]/20">
+        {/* Brand & Status */}
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-[#00f5ff] shadow-sm shadow-[#00f5ff]/60 animate-pulse" />
+            <span className="font-extrabold text-base tracking-wider text-[#f7f7f8] flex items-center gap-1.5">
+              <span className="bg-gradient-to-r from-[#C9E4A5] to-[#7FE3C0] bg-clip-text text-transparent">
+                KAIROS
+              </span>
             </span>
-            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.08] text-[10px] text-zinc-400 font-mono">
-              <ShieldCheck className="w-2.5 h-2.5 text-[#C6FF3D]" />
-              <span>ON-DEVICE</span>
-            </div>
+          </div>
+
+          {/* Persona Choosing Button: Opens the Persona Chooser Modal */}
+          <button
+            onClick={() => setIsPersonaModalOpen(true)}
+            title="Click to choose persona or calibrate attention profile"
+            className="ml-1 text-xs px-2.5 py-1 rounded-full bg-[#7FE3C0]/15 hover:bg-[#7FE3C0]/25 text-[#B8F27A] border border-[#7FE3C0]/30 flex items-center gap-1.5 transition-colors cursor-pointer active:scale-95"
+          >
+            <Shield className="w-3 h-3 text-[#00f5ff]" />
+            <span className="font-semibold">{personaNames[activePersona] || 'Choose Persona'}</span>
+            <ChevronDown className="w-3 h-3 opacity-60" />
           </button>
-          <p className="text-[11px] text-zinc-500 font-sans tracking-wide">
-            Your attention, simulated.
-          </p>
         </div>
 
-        {/* Action buttons: Demo & Quiet Mode */}
+        {/* Right Controls */}
         <div className="flex items-center gap-1.5">
-          {isGuidedDemoRunning ? (
+          {/* Judge Demo Quick Trigger */}
+          {!isGuidedDemoRunning && (
             <button
-              onClick={() => {
-                triggerHaptic('medium');
-                stopGuidedDemo();
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-[#FF6B4A]/20 border border-[#FF6B4A]/40 text-[#FF6B4A] text-xs font-mono tracking-wider transition-all"
+              onClick={startGuidedDemo}
+              title="Start 60-Second Guided Demo"
+              className="text-xs px-2.5 py-1 rounded-xl bg-[#00f5ff]/15 hover:bg-[#00f5ff]/25 text-[#00f5ff] border border-[#00f5ff]/30 flex items-center gap-1 font-semibold transition-colors cursor-pointer"
             >
-              <Square className="w-3 h-3 fill-current" />
-              <span>STOP DEMO ({guidedDemoStep}/6)</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => {
-                triggerHaptic('light');
-                startGuidedDemo();
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-[#C6FF3D]/10 hover:bg-[#C6FF3D]/20 border border-[#C6FF3D]/30 text-[#C6FF3D] text-xs font-mono tracking-wider transition-all"
-            >
-              <Play className="w-3 h-3 fill-current" />
-              <span>GUIDED DEMO</span>
+              <Sparkles className="w-3 h-3" />
+              <span className="hidden sm:inline">Judge Demo</span>
             </button>
           )}
 
+          {/* AI Offline Indicator if unreachable */}
+          {!aiOnline && (
+            <span
+              title="Local deterministic fallback mode active"
+              className="text-[10px] px-2 py-0.5 rounded-md bg-white/[0.05] text-[#8b8988] border border-white/[0.06]"
+            >
+              AI Offline
+            </span>
+          )}
+
+          {/* Theme Toggle */}
           <button
-            onClick={() => {
-              triggerHaptic('selection');
-              setQuietMode(!quietMode);
-            }}
-            title={quietMode ? 'Quiet mode active (static)' : 'Toggle quiet mode'}
-            className={`p-2 rounded-full border transition-all ${
-              quietMode
-                ? 'bg-zinc-800 border-zinc-600 text-zinc-300'
-                : 'bg-white/[0.03] border-white/[0.08] text-zinc-400 hover:text-white'
-            }`}
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="w-9 h-9 rounded-xl text-[#8b8988] hover:text-[#f7f7f8] hover:bg-white/[0.06] flex items-center justify-center transition-colors cursor-pointer"
+            title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} theme`}
           >
-            {quietMode ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
+
+          {/* Settings Gear Button: Opens SettingsSheet */}
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="w-9 h-9 rounded-xl text-[#8b8988] hover:text-[#f7f7f8] hover:bg-white/[0.06] flex items-center justify-center transition-colors cursor-pointer active:scale-95"
+            title="Settings & Admin Configuration"
+          >
+            <Settings className="w-4 h-4" />
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Persona quick-switch bar */}
-      <div className="flex items-center gap-1 mt-2.5 overflow-x-auto no-scrollbar py-0.5">
-        <span className="text-[10px] text-zinc-600 font-mono uppercase tracking-wider mr-1">
-          TWIN:
-        </span>
-        {personas.map((p) => {
-          const isActive = activePersona === p.id;
-          return (
-            <button
-              key={p.id}
-              onClick={() => {
-                triggerHaptic('selection');
-                setActivePersona(p.id);
-              }}
-              className={`px-2.5 py-1 rounded-md text-xs font-mono transition-all duration-200 ${
-                isActive
-                  ? 'bg-white/10 text-white border border-white/20'
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              {p.label}
-            </button>
-          );
-        })}
-
-        <button
-          onClick={() => {
-            triggerHaptic('light');
-            setCurrentView('builder');
-          }}
-          className="p-1 rounded-md text-zinc-500 hover:text-[#C6FF3D] border border-dashed border-white/10 hover:border-[#C6FF3D]/40 transition-colors ml-1"
-          title="Create New Attention Persona"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    </header>
+      {/* Persona Choosing Modal */}
+      <PersonaModal
+        isOpen={isPersonaModalOpen}
+        onClose={() => setIsPersonaModalOpen(false)}
+      />
+    </>
   );
 };

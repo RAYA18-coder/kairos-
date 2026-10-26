@@ -6,217 +6,296 @@
 import React, { useState } from 'react';
 import { useKairosStore } from '../store/useKairosStore';
 import {
-  Clock,
-  BatteryCharging,
-  Shield,
+  GlassCard,
+  ClayButton,
+  ClayChip,
+  ClayStat,
+  NeuSearch,
+  BentoGrid,
+  BentoTile,
+} from '../components/ui/ReferenceComponents';
+import { BrainsScene } from '../components/BrainsScene';
+import { FocusClockChart } from '../components/charts/FocusClockChart';
+import { Badge } from '../components/ui/Badge';
+import {
   Sparkles,
-  Check,
-  Activity,
-  Layers,
-  ChevronRight,
+  Shield,
+  Coffee,
+  Battery,
+  Flame,
+  CheckCircle2,
+  ArrowRight,
+  User,
+  Sliders,
+  Send,
+  Bell,
 } from 'lucide-react';
-import { triggerHaptic } from '../lib/haptics';
+import { ActivityType } from '../engine/types';
+
+const CONTEXT_ACTIVITIES: { id: ActivityType; label: string; icon: string }[] = [
+  { id: 'coding', label: 'Coding', icon: '💻' },
+  { id: 'studying', label: 'Studying', icon: '📚' },
+  { id: 'writing', label: 'Creating', icon: '🎨' },
+  { id: 'reading', label: 'Reading', icon: '📖' },
+  { id: 'idle', label: 'Resting', icon: '☕' },
+];
 
 export const NowScreen: React.FC = () => {
   const userState = useKairosStore((s) => s.userState);
+  const setUserState = useKairosStore((s) => s.setUserState);
+  const role = useKairosStore((s) => s.role);
   const activeProfileId = useKairosStore((s) => s.activeProfileId);
-  const profiles = useKairosStore((s) => s.profiles);
   const twins = useKairosStore((s) => s.twins);
   const attentionSavedTodayMinutes = useKairosStore((s) => s.attentionSavedTodayMinutes);
-  const logCheckIn = useKairosStore((s) => s.logCheckIn);
+  const guardStream = useKairosStore((s) => s.guardStream);
   const setActiveTab = useKairosStore((s) => s.setActiveTab);
+  const simulateNaturalLanguageWhatIf = useKairosStore((s) => s.simulateNaturalLanguageWhatIf);
 
-  const [lastCheckIn, setLastCheckIn] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
 
-  const profile = profiles[activeProfileId];
   const twin = twins[activeProfileId] || twins.arjun;
   const provenance = twin.focusCurve.provenance;
 
-  const currentHourPoint = twin.focusCurve.data.weekday[userState.hour] || {
-    probDeepFocus: 0.75,
-  };
-  const focusPercentage = Math.round(
-    currentHourPoint.probDeepFocus * (1 - userState.fatigue * 0.45) * 100
+  // Hourly curve data
+  const hourlyCurve = twin.focusCurve.data.weekday.map((p) => p.probDeepFocus);
+  const currentHourProb = hourlyCurve[userState.hour] || 0.78;
+  const currentFocusPct = Math.round(
+    currentHourProb * (1 - userState.fatigue * 0.4) * 100
   );
 
-  // 12-hour forecast strip starting from current hour
-  const forecastHours = Array.from({ length: 12 }, (_, i) => (userState.hour + i) % 24);
+  const fatiguePct = Math.round(userState.fatigue * 100);
 
-  // Compute next golden peak window
-  const goldenWindows = [21, 22, 23, 0, 1, 6, 7, 8, 9];
-  const nextGoldenHour =
-    goldenWindows.find((h) => h !== userState.hour && (h > userState.hour || userState.hour > 22)) ||
-    22;
+  // Predicted break minutes
+  const minutesUntilBreak = Math.max(
+    5,
+    Math.round(twin.meanFocusBlockMinutes - userState.minutesIntoFocusBlock)
+  );
 
-  const handleCheckIn = (type: 'flow' | 'distracted' | 'tired', label: string) => {
-    triggerHaptic('medium');
-    logCheckIn(type);
-    setLastCheckIn(label);
-    setTimeout(() => setLastCheckIn(null), 3000);
+  const savedLow = Math.max(0, Math.round(attentionSavedTodayMinutes * 0.85));
+  const savedHigh = Math.round(attentionSavedTodayMinutes * 1.25);
+
+  const handleSearchSubmit = async () => {
+    if (!searchQuery.trim()) return;
+    setIsSearching(true);
+    await simulateNaturalLanguageWhatIf(searchQuery);
+    setIsSearching(false);
+    setActiveTab('simulate');
   };
 
+  // 3 high-importance notifications to watch
+  const notificationsToWatch = guardStream.slice(0, 3);
+
   return (
-    <div className="relative z-10 flex flex-col justify-between min-h-[calc(100dvh-130px)] px-5 py-4 pb-28 space-y-4">
-      {/* Top Status & Provenance Bar */}
-      <div className="space-y-2.5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.08]">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#C6FF3D]" />
-            <span className="text-xs font-mono uppercase tracking-wider text-zinc-300">
-              {userState.activity}: {userState.minutesIntoFocusBlock}m active
+    <div className="flex flex-col gap-4 px-4 pt-4 pb-28 text-left animate-in fade-in duration-200">
+      {/* 1. Greeting + Avatar Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-[#0E2F22] border border-[#7FE3C0]/30 flex items-center justify-center font-bold text-sm text-[#7FE3C0] shadow-md">
+            <User className="w-5 h-5 text-[#7FE3C0]" />
+          </div>
+          <div>
+            <span className="text-[11px] font-semibold text-[rgba(242,247,243,0.62)] uppercase tracking-wider">
+              {role === 'creator' ? 'Creator Twin' : 'Developer Twin'} · Online
             </span>
-          </div>
-
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.04] border border-white/[0.08] text-zinc-400 text-xs font-mono">
-            <BatteryCharging className="w-3.5 h-3.5 text-zinc-400" />
-            <span>Fatigue {Math.round(userState.fatigue * 100)}%</span>
+            <h1 className="text-xl font-bold tracking-tight text-[#F2F7F3]">
+              Good evening, {activeProfileId === 'meera' ? 'Meera' : 'Arjun'}
+            </h1>
           </div>
         </div>
 
-        {/* Provenance badge */}
-        <div className="flex items-center justify-between text-[11px] font-mono">
-          <span className="text-zinc-500">
-            Twin: <strong className="text-zinc-300">{profile?.config.name || 'Arjun'}</strong>
-          </span>
-          <span className="px-2 py-0.5 rounded-md bg-white/[0.04] border border-white/[0.06] text-zinc-400 text-[10px]">
-            PROVENANCE: {provenance}
-          </span>
-        </div>
+        <Badge label="Twin Sync 64%" variant="accent" />
       </div>
 
-      {/* Hero Cognitive Depth (Spacious negative space around 3D core) */}
-      <div className="my-auto py-10 flex flex-col items-center justify-center text-center">
-        <span className="text-[10px] font-mono tracking-[0.3em] uppercase text-zinc-500 mb-1">
-          CURRENT COGNITIVE DEPTH
-        </span>
-        <div className="flex items-baseline justify-center">
-          <span className="text-7xl font-sans font-light tracking-tight text-white tabular-nums">
-            {focusPercentage}
-          </span>
-          <span className="text-2xl font-light text-[#C6FF3D] font-mono ml-1">%</span>
-        </div>
-        <p className="text-xs font-mono text-zinc-400 mt-2 tracking-wide">
-          {focusPercentage >= 75
-            ? 'Deep Flow State'
-            : focusPercentage >= 50
-            ? 'Moderate Concentration'
-            : 'Fragile Focus • Interruption Hazard'}
-        </p>
+      {/* 2. NeuSearch Natural Language What-If Input */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSearchSubmit();
+        }}
+        className="w-full"
+      >
+        <NeuSearch
+          value={searchQuery}
+          onChange={setSearchQuery}
+          onSubmit={handleSearchSubmit}
+          placeholder="Ask your twin: what if my manager DMs me at 11pm?"
+        />
+      </form>
 
-        {/* Quick Simulator CTA */}
-        <button
-          onClick={() => {
-            triggerHaptic('light');
-            setActiveTab('simulate');
-          }}
-          className="mt-5 flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-xs font-mono text-zinc-300 transition-all hover:scale-102"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-[#C6FF3D]" />
-          <span>Simulate Counterfactual Interruption</span>
-        </button>
+      {/* 3. Context Activity Chip Row */}
+      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+        {CONTEXT_ACTIVITIES.map((act) => {
+          const isActive = userState.activity === act.id;
+          return (
+            <button
+              key={act.id}
+              onClick={() => setUserState({ activity: act.id })}
+              className={`text-xs px-3.5 py-2 rounded-2xl border flex items-center gap-1.5 shrink-0 transition-all ${
+                isActive
+                  ? 'bg-[#7FE3C0] text-[#081B12] font-bold border-[#7FE3C0] shadow-md shadow-[#7FE3C0]/20'
+                  : 'bg-[#0D241B] text-[rgba(242,247,243,0.65)] border-white/10 hover:text-[#F2F7F3]'
+              }`}
+            >
+              <span>{act.icon}</span>
+              <span>{act.label}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* 12-Hour Focus Forecast Strip */}
-      <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06] backdrop-blur-md space-y-2">
-        <div className="flex items-center justify-between text-[10px] font-mono uppercase text-zinc-500">
-          <span>12-Hour Attention Forecast</span>
-          <span className="text-zinc-400">Circadian Baseline</span>
-        </div>
+      {/* 4. Bento Dashboard Layout */}
+      <BentoGrid>
+        {/* HERO TILE: Merged Brains + Focus + Attention Saved (4x2 on mobile) */}
+        <BentoTile span="4x2" className="p-5 flex flex-col justify-between relative overflow-hidden bg-gradient-to-br from-[#0F3B2C]/40 to-[#0B2A1E]/80">
+          <div className="flex items-center justify-between z-10">
+            <div>
+              <span className="text-[11px] font-bold text-[#7FE3C0] uppercase tracking-wider flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5" />
+                <span>On-Device Attention Twin</span>
+              </span>
+              <p className="text-sm font-semibold text-[#F2F7F3] mt-0.5 capitalize">
+                {userState.activity} session · {userState.minutesIntoFocusBlock}m active
+              </p>
+            </div>
 
-        <div className="grid grid-cols-6 gap-1 pt-1">
-          {forecastHours.slice(0, 6).map((h) => {
-            const pt = twin.focusCurve.data.weekday[h];
-            const prob = pt ? Math.round(pt.probDeepFocus * 100) : 50;
-            const isNow = h === userState.hour;
-            return (
-              <div
-                key={h}
-                className={`p-1.5 rounded-lg text-center font-mono ${
-                  isNow ? 'bg-white/10 border border-white/20' : 'bg-white/[0.02]'
-                }`}
-              >
-                <span className="text-[9px] text-zinc-500 block">{h}:00</span>
-                <span
-                  className={`text-xs font-light tabular-nums ${
-                    prob >= 75 ? 'text-[#C6FF3D]' : prob >= 45 ? 'text-zinc-300' : 'text-zinc-500'
-                  }`}
-                >
-                  {prob}%
+            <div className="px-3 py-1 rounded-full bg-[#0E2F22] border border-[#7FE3C0]/30 text-xs font-mono-numbers text-[#7FE3C0] font-bold">
+              {currentFocusPct}% Focus
+            </div>
+          </div>
+
+          {/* Interactive Merged Brains Scene */}
+          <div className="w-full my-1">
+            <BrainsScene merge={0.64} pulse={currentFocusPct / 100} size={200} />
+          </div>
+
+          {/* Bottom Bar inside Hero Tile */}
+          <div className="flex items-center justify-between border-t border-white/10 pt-3 z-10">
+            <div>
+              <span className="text-[10px] text-[rgba(242,247,243,0.6)] uppercase font-semibold">
+                Saved Today
+              </span>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-2xl font-bold font-mono-numbers text-[#7FE3C0]">
+                  +{attentionSavedTodayMinutes}m
+                </span>
+                <span className="text-[10px] text-[rgba(242,247,243,0.5)] font-mono-numbers">
+                  [{savedLow}m, {savedHigh}m]
                 </span>
               </div>
-            );
-          })}
-        </div>
-      </div>
+            </div>
 
-      {/* Automotive Instrument Cards */}
-      <div className="space-y-3">
-        {/* Metric Cards Row */}
-        <div className="grid grid-cols-2 gap-2.5">
-          {/* Attention Saved Today */}
-          <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] backdrop-blur-sm">
-            <div className="flex items-center gap-1.5 text-zinc-500 text-[10px] font-mono uppercase tracking-wider mb-1">
-              <Shield className="w-3 h-3 text-[#C6FF3D]" />
-              <span>Protected Today</span>
-            </div>
-            <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-sans font-light text-white tabular-nums">
-                +{attentionSavedTodayMinutes}
-              </span>
-              <span className="text-xs text-zinc-400 font-mono">min</span>
-            </div>
-            <p className="text-[10px] text-zinc-500 mt-0.5">Sum of counterfactuals held</p>
+            <ClayButton
+              variant="sage"
+              size="sm"
+              onClick={() => setActiveTab('simulate')}
+              rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
+            >
+              Simulate
+            </ClayButton>
           </div>
+        </BentoTile>
 
-          {/* Next Golden Window */}
-          <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] backdrop-blur-sm">
-            <div className="flex items-center gap-1.5 text-zinc-500 text-[10px] font-mono uppercase tracking-wider mb-1">
-              <Clock className="w-3 h-3 text-zinc-400" />
-              <span>Next Peak</span>
-            </div>
-            <div className="text-2xl font-sans font-light text-white tabular-nums">
-              {nextGoldenHour}:00
-            </div>
-            <p className="text-[10px] text-zinc-500 mt-0.5">Optimal cognitive window</p>
-          </div>
-        </div>
-
-        {/* Teach Your Twin (Check-In) */}
-        <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.05]">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-mono tracking-wider uppercase text-zinc-500">
-              TEACH YOUR TWIN (MOMENTARY SIGNAL)
+        {/* Focus Clock Tile: 24 bars (4x1) */}
+        <BentoTile span="4x1" className="p-4 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[#F2F7F3] flex items-center gap-1.5">
+              <Coffee className="w-3.5 h-3.5 text-[#FFC44D]" />
+              <span>Diurnal Focus Clock</span>
             </span>
-            {lastCheckIn && (
-              <span className="text-[10px] text-[#C6FF3D] font-mono flex items-center gap-1 animate-pulse">
-                <Check className="w-3 h-3" /> Logged: {lastCheckIn}
-              </span>
-            )}
+            <span className="text-[11px] font-mono-numbers text-[#7FE3C0]">
+              Peak: <strong>{userState.hour}:00</strong>
+            </span>
           </div>
+          <FocusClockChart
+            hourlyFocus={hourlyCurve}
+            currentHour={userState.hour}
+            onSelectHour={(h) => setUserState({ hour: h })}
+          />
+        </BentoTile>
 
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              onClick={() => handleCheckIn('flow', 'In Flow')}
-              className="py-2.5 px-2 rounded-xl bg-white/[0.04] hover:bg-[#C6FF3D]/10 hover:border-[#C6FF3D]/30 border border-white/[0.08] text-xs font-mono text-zinc-300 hover:text-[#C6FF3D] transition-all flex flex-col items-center gap-1"
-            >
-              <Activity className="w-3.5 h-3.5" />
-              <span>In Flow</span>
-            </button>
-            <button
-              onClick={() => handleCheckIn('distracted', 'Distracted')}
-              className="py-2.5 px-2 rounded-xl bg-white/[0.04] hover:bg-[#FF6B4A]/10 hover:border-[#FF6B4A]/30 border border-white/[0.08] text-xs font-mono text-zinc-300 hover:text-[#FF6B4A] transition-all flex flex-col items-center gap-1"
-            >
-              <Clock className="w-3.5 h-3.5" />
-              <span>Distracted</span>
-            </button>
-            <button
-              onClick={() => handleCheckIn('tired', 'Fatigued')}
-              className="py-2.5 px-2 rounded-xl bg-white/[0.04] hover:bg-zinc-700/30 border border-white/[0.08] text-xs font-mono text-zinc-300 transition-all flex flex-col items-center gap-1"
-            >
-              <BatteryCharging className="w-3.5 h-3.5" />
-              <span>Fatigued</span>
-            </button>
+        {/* Fatigue Dial Tile (2x1) */}
+        <BentoTile span="2x1" className="p-4 flex flex-col justify-between">
+          <span className="text-xs font-semibold text-[rgba(242,247,243,0.65)] uppercase flex items-center gap-1.5">
+            <Battery className="w-3.5 h-3.5 text-[#FFC44D]" />
+            <span>Fatigue Load</span>
+          </span>
+          <div className="flex items-baseline gap-1 mt-1">
+            <span className="text-2xl font-bold font-mono-numbers text-[#FFC44D]">
+              {fatiguePct}%
+            </span>
+            <span className="text-[11px] text-[rgba(242,247,243,0.5)]">Accumulated</span>
           </div>
+          <div className="w-full h-1.5 rounded-full bg-white/10 mt-2 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-[#7FE3C0] via-[#FFC44D] to-[#FF6B4A]"
+              style={{ width: `${fatiguePct}%` }}
+            />
+          </div>
+        </BentoTile>
+
+        {/* Next Break Tile (2x1) */}
+        <BentoTile span="2x1" className="p-4 flex flex-col justify-between">
+          <span className="text-xs font-semibold text-[rgba(242,247,243,0.65)] uppercase flex items-center gap-1.5">
+            <Coffee className="w-3.5 h-3.5 text-[#6EC8FF]" />
+            <span>Next Break</span>
+          </span>
+          <div className="flex items-baseline gap-1 mt-1">
+            <span className="text-2xl font-bold font-mono-numbers text-[#6EC8FF]">
+              ~{minutesUntilBreak}
+            </span>
+            <span className="text-[11px] text-[rgba(242,247,243,0.5)]">minutes</span>
+          </div>
+          <span className="text-[10px] text-[rgba(242,247,243,0.45)] mt-2">
+            Natural focus block boundary
+          </span>
+        </BentoTile>
+      </BentoGrid>
+
+      {/* 5. Horizontal "Notifications to Watch" Cards */}
+      <div className="flex flex-col gap-2 pt-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold text-[rgba(242,247,243,0.65)] uppercase tracking-wider flex items-center gap-1.5">
+            <Bell className="w-3.5 h-3.5 text-[#7FE3C0]" />
+            <span>Notifications To Watch</span>
+          </h3>
+          <button
+            onClick={() => setActiveTab('guard')}
+            className="text-xs text-[#7FE3C0] hover:underline font-semibold"
+          >
+            View All ({guardStream.length})
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-2.5">
+          {notificationsToWatch.map((item) => (
+            <GlassCard
+              key={item.id}
+              onClick={() => setActiveTab('guard')}
+              className="p-3.5 flex items-center justify-between gap-3 hover:bg-white/[0.08]"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-[#0E2F22] text-[#7FE3C0] flex items-center justify-center font-bold text-xs shrink-0 border border-[#7FE3C0]/30">
+                  {item.appName.slice(0, 2).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-[#F2F7F3] truncate">
+                      {item.appName}
+                    </span>
+                    <span className="text-[10px] text-[rgba(242,247,243,0.5)] font-mono-numbers">
+                      {item.senderImportance ? `${Math.round(item.senderImportance * 100)}% imp` : ''}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[rgba(242,247,243,0.65)] truncate max-w-[220px]">
+                    {item.body}
+                  </p>
+                </div>
+              </div>
+
+              <ClayChip verdict={item.verdict} size="sm" />
+            </GlassCard>
+          ))}
         </div>
       </div>
     </div>

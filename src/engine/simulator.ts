@@ -103,8 +103,17 @@ export function simulate(
   const fBand = state.fatigue >= 0.7 ? 'high' : state.fatigue >= 0.35 ? 'med' : 'low';
   const bucketKey = `${state.activity}_${fBand}_${notification.appName}`;
   const branchBucket = twin.branchModel?.[bucketKey];
-  let pGlanceGivenOpen = 0.25;
-  let pBrowseGivenOpen = 0.55;
+  let pGlanceGivenOpen = 1 / 3; // uninformative until the twin has any learned bucket
+  let pBrowseGivenOpen = 1 / 3;
+  {
+    // Fallback is DERIVED from the twin: pool every learned bucket instead of typing numbers
+    let g = 0, b = 0, n = 0;
+    Object.values(twin.branchModel || {}).forEach((bk) => {
+      const o = bk.probabilities.glance + bk.probabilities.browse + bk.probabilities.abandon;
+      if (o > 0) { g += bk.probabilities.glance / o; b += bk.probabilities.browse / o; n++; }
+    });
+    if (n > 0) { pGlanceGivenOpen = g / n; pBrowseGivenOpen = b / n; }
+  }
   if (branchBucket) {
     const openP =
       branchBucket.probabilities.glance +
@@ -174,9 +183,9 @@ export function simulate(
     const focusLossB = Math.min(60, detourB + resumeB * 0.8);
 
     // Paired difference for this run (Common Random Numbers)
-    const pairedSaved = Math.max(0.6, focusLossA - focusLossB);
+    const pairedSaved = focusLossA - focusLossB; // may be negative: suppression is not assumed to be free
     pairedFocusLossSavedList[r] = pairedSaved;
-    pairedResumeAvoidedList[r] = Math.max(0.4, resumeA - resumeB);
+    pairedResumeAvoidedList[r] = resumeA - resumeB;
 
     // Timeline curves for this run
     const shownTimeline: number[] = new Array(TIME_HORIZON);
@@ -300,13 +309,15 @@ export function simulate(
   // Counterfactual Paired Metrics
   const focusMinutesSaved =
     Math.round((pairedFocusLossSavedList.reduce((a, b) => a + b, 0) / MONTE_CARLO_RUNS) * 10) / 10;
-  const focusSavedLower = Math.round(getQuantile(pairedFocusLossSavedList, 0.025) * 10) / 10;
-  const focusSavedUpper = Math.round(getQuantile(pairedFocusLossSavedList, 0.975) * 10) / 10;
+  const [focusCiLo, focusCiHi] = meanCI(pairedFocusLossSavedList);
+  const focusSavedLower = Math.round(focusCiLo * 10) / 10;
+  const focusSavedUpper = Math.round(focusCiHi * 10) / 10;
 
   const resumeDelayAvoided =
     Math.round((pairedResumeAvoidedList.reduce((a, b) => a + b, 0) / MONTE_CARLO_RUNS) * 10) / 10;
-  const resumeAvoidedLower = Math.round(getQuantile(pairedResumeAvoidedList, 0.025) * 10) / 10;
-  const resumeAvoidedUpper = Math.round(getQuantile(pairedResumeAvoidedList, 0.975) * 10) / 10;
+  const [resumeCiLo, resumeCiHi] = meanCI(pairedResumeAvoidedList);
+  const resumeAvoidedLower = Math.round(resumeCiLo * 10) / 10;
+  const resumeAvoidedUpper = Math.round(resumeCiHi * 10) / 10;
 
   // Regret cost derived from learned NotificationValue x senderImportance x expected delay
   const importanceBand: 'low' | 'medium' | 'high' =
@@ -360,4 +371,16 @@ export function simulate(
     },
     verdict,
   };
+}
+
+/** 95% confidence interval of the MEAN paired difference (normal approx., N = Monte Carlo runs). */
+function meanCI(list: ArrayLike<number>): [number, number] {
+  const n = list.length;
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += list[i];
+  const mean = sum / n;
+  let ss = 0;
+  for (let i = 0; i < n; i++) ss += (list[i] - mean) ** 2;
+  const se = Math.sqrt(ss / Math.max(1, n - 1)) / Math.sqrt(n);
+  return [mean - 1.96 * se, mean + 1.96 * se];
 }

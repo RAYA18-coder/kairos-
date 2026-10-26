@@ -41,20 +41,33 @@ import {
   verifyPasscode,
 } from '../lib/storage';
 import { runEngineSelfChecks, SelfCheckResult } from '../engine/selfCheck';
+import { importanceLearner, UserRole, hashSender } from '../native/importanceLearner';
+import { sendTestNotification } from '../native/notify';
+import { subscribe, IncomingNotificationEvent, channelToNotificationType } from '../native/sensor';
+import { explainVerdictWithAi, parseWhatIfNaturalLanguage } from '../lib/geminiClient';
 
 export interface GuardStreamItem {
   id: string;
-  appName: AppName;
+  appName: AppName | string;
   type: NotificationType;
+  channel?: string;
   title: string;
   body: string;
+  senderRaw?: string;
+  senderHash?: string;
   senderImportance: number;
+  importanceConfidence?: [number, number];
+  importanceWhy?: string;
+  importanceBefore?: number;
+  importanceAfter?: number;
   timestamp: number;
   verdict: VerdictDecision;
   reason: string;
   savedMinutes: number;
   status: 'sent' | 'held' | 'batched' | 'suppressed';
   userOverride?: 'ALLOWED' | 'SUPPRESSED';
+  userFeedback?: 'worth_it' | 'hijacked' | 'dismissed';
+  isVip?: boolean;
 }
 
 export interface ProfileRecord {
@@ -66,11 +79,20 @@ export interface ProfileRecord {
 
 export interface KairosState {
   // Navigation & Flows
-  currentView: 'landing' | 'builder' | 'app';
+  currentView: 'welcome' | 'landing' | 'builder' | 'app';
   activeTab: 'now' | 'simulate' | 'guard' | 'twin' | 'proof';
   isExperimentActive: boolean;
   guidedDemoStep: number;
   isGuidedDemoRunning: boolean;
+
+  // Personal Role & Creator Mode
+  role: UserRole;
+  workApps: string[];
+  theme: 'dark' | 'light';
+  dataSource: 'simulated' | 'live';
+  isSettingsOpen: boolean;
+  selectedGuardDetail: GuardStreamItem | null;
+  aiOnline: boolean;
 
   // Profiles & Passcode Security
   profiles: Record<string, ProfileRecord>;
@@ -111,17 +133,25 @@ export interface KairosState {
   attentionSavedTodayMinutes: number;
 
   // Actions
-  setCurrentView: (view: 'landing' | 'builder' | 'app') => void;
+  setCurrentView: (view: 'welcome' | 'landing' | 'builder' | 'app') => void;
   setActiveTab: (tab: 'now' | 'simulate' | 'guard' | 'twin' | 'proof') => void;
   setActiveProfile: (profileId: string) => void;
   setActivePersona: (personaId: string) => void;
+  setRole: (role: UserRole) => void;
+  setWorkApps: (apps: string[]) => void;
+  setTheme: (theme: 'dark' | 'light') => void;
+  setDataSource: (source: 'simulated' | 'live') => void;
+  setIsSettingsOpen: (open: boolean) => void;
+  setSelectedGuardDetail: (item: GuardStreamItem | null) => void;
   setOnboardingStep: (step: 'welcome' | 'archetype' | 'training' | 'completed') => void;
+
   createProfile: (config: PersonaProfileConfig, passcode?: string) => Promise<void>;
   setPasscodeForActiveProfile: (passcode: string) => Promise<void>;
   unlockWithPasscode: (passcode: string) => Promise<boolean>;
   lockDevice: () => void;
   resetActiveProfileData: () => void;
   resetEverything: () => void;
+  deleteEverything: () => void;
 
   setUserState: (partial: Partial<UserState>) => void;
   setActiveNotification: (notif: NotificationItem) => void;
@@ -142,8 +172,13 @@ export interface KairosState {
 
   requestNotificationPermission: () => Promise<NotificationPermission>;
   sendRealNotification: (notif: NotificationItem) => Promise<void>;
+  sendTestNotificationNow: (title?: string, body?: string) => Promise<boolean>;
   overrideGuardDecision: (id: string, override: 'ALLOWED' | 'SUPPRESSED') => void;
+  recordNotificationFeedback: (id: string, outcome: 'worth_it' | 'hijacked', explicit?: boolean) => void;
+  toggleSenderVip: (id: string) => void;
+  releaseDigestNow: () => void;
   requestAiExplanation: () => Promise<void>;
+  simulateNaturalLanguageWhatIf: (queryText: string) => Promise<void>;
 }
 
 // Initial default persona twins trained from synthetic logs
@@ -178,7 +213,7 @@ const defaultNotification: NotificationItem = {
   type: 'social_like',
   title: 'Instagram',
   body: 'Someone liked your post',
-  senderImportance: 0.1,
+  senderImportance: 0.12,
   timestamp: Date.now(),
 };
 
@@ -189,9 +224,14 @@ const initialGuardItems: GuardStreamItem[] = [
     id: 'g_1',
     appName: 'Instagram',
     type: 'social_like',
+    channel: 'like',
     title: 'Instagram',
-    body: 'elena_v liked your story',
-    senderImportance: 0.1,
+    body: 'sarah_k and 14 others liked your reel',
+    senderRaw: 'sarah_k',
+    senderHash: hashSender('sarah_k'),
+    senderImportance: 0.12,
+    importanceConfidence: [0.08, 0.18],
+    importanceWhy: 'Role prior: Developer social likes low importance',
     timestamp: Date.now() - 4 * 60000,
     verdict: 'SUPPRESS',
     reason: 'Deep coding flow (35m). Predicted 17m detour risk into feed.',
@@ -202,9 +242,14 @@ const initialGuardItems: GuardStreamItem[] = [
     id: 'g_2',
     appName: 'System',
     type: 'otp',
+    channel: 'otp',
     title: 'Bank Verification Code',
     body: '934102 is your transaction security code',
+    senderRaw: 'SecurityBank',
+    senderHash: hashSender('SecurityBank'),
     senderImportance: 1.0,
+    importanceConfidence: [0.98, 1.0],
+    importanceWhy: 'Safety rule: Time-critical authentication code',
     timestamp: Date.now() - 14 * 60000,
     verdict: 'ALLOW NOW',
     reason: 'Safety rule: Time-critical authentication code.',
@@ -215,9 +260,14 @@ const initialGuardItems: GuardStreamItem[] = [
     id: 'g_3',
     appName: 'Slack',
     type: 'work_msg',
+    channel: 'work_msg',
     title: 'Slack #core-product',
     body: 'Sarah: Please check the PR when you take your next break',
-    senderImportance: 0.82,
+    senderRaw: 'sarah_pm',
+    senderHash: hashSender('sarah_pm'),
+    senderImportance: 0.84,
+    importanceConfidence: [0.76, 0.92],
+    importanceWhy: 'Learned from 8 past interactions with Slack',
     timestamp: Date.now() - 25 * 60000,
     verdict: 'HOLD UNTIL NEXT BREAK',
     reason: 'Valuable message held for natural pause in ~18 min.',
@@ -228,9 +278,14 @@ const initialGuardItems: GuardStreamItem[] = [
     id: 'g_4',
     appName: 'Reddit',
     type: 'news',
+    channel: 'news',
     title: 'Reddit r/technology',
     body: 'New chip architecture benchmarks published',
+    senderRaw: 'reddit_bot',
+    senderHash: hashSender('reddit_bot'),
     senderImportance: 0.18,
+    importanceConfidence: [0.12, 0.26],
+    importanceWhy: 'Aggregated daily tech news digest',
     timestamp: Date.now() - 50 * 60000,
     verdict: 'BATCH IN DIGEST',
     reason: 'Scheduled for 21:00 evening digest.',
@@ -246,6 +301,14 @@ export const useKairosStore = create<KairosState>((set, get) => ({
   guidedDemoStep: 0,
   isGuidedDemoRunning: false,
 
+  role: importanceLearner.getRole(),
+  workApps: importanceLearner.getWorkApps(),
+  theme: 'dark',
+  dataSource: 'simulated',
+  isSettingsOpen: false,
+  selectedGuardDetail: null,
+  aiOnline: true,
+
   profiles: {
     arjun: { config: PRESET_PERSONA_CONFIGS.arjun, isProtectedWithPasscode: false },
     meera: { config: PRESET_PERSONA_CONFIGS.meera, isProtectedWithPasscode: false },
@@ -259,7 +322,10 @@ export const useKairosStore = create<KairosState>((set, get) => ({
   quietMode: false,
   judgeMode: false,
   canvasQuality: 'high',
-  notificationPermission: typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported',
+  notificationPermission:
+    typeof window !== 'undefined' && 'Notification' in window
+      ? Notification.permission
+      : 'unsupported',
 
   twins: {
     arjun: arjunTwin,
@@ -294,10 +360,94 @@ export const useKairosStore = create<KairosState>((set, get) => ({
   attentionSavedTodayMinutes: 47,
 
   setCurrentView: (view) => set({ currentView: view }),
-
   setActiveTab: (tab) => set({ activeTab: tab }),
-
   setOnboardingStep: (step) => set({ onboardingStep: step }),
+  setIsSettingsOpen: (open) => set({ isSettingsOpen: open }),
+  setSelectedGuardDetail: (item) => set({ selectedGuardDetail: item }),
+
+  setTheme: (theme) => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', theme);
+      if (theme === 'light') {
+        document.documentElement.classList.add('light');
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.add('dark');
+        document.documentElement.classList.remove('light');
+      }
+    }
+    set({ theme });
+  },
+
+  setDataSource: (dataSource) => set({ dataSource }),
+
+  setRole: (role) => {
+    importanceLearner.setRole(role);
+    // Align persona profile with role
+    let targetProfile = 'arjun';
+    if (role === 'creator') targetProfile = 'meera';
+    else if (role === 'student') targetProfile = 'kabir';
+
+    const { activeNotification, userState, twins, simulationSeed, guardStream } = get();
+    const currentTwin = twins[targetProfile] || twins.arjun;
+
+    // Rescore active notification with new role prior
+    const scoreRes = importanceLearner.score(
+      activeNotification.appName,
+      activeNotification.type,
+      activeNotification.id
+    );
+
+    const updatedNotif = {
+      ...activeNotification,
+      senderImportance: scoreRes.value,
+    };
+
+    const newSim = simulate(userState, updatedNotif, currentTwin, simulationSeed);
+
+    // Rescore all guard stream items
+    const updatedGuard = guardStream.map((item) => {
+      const s = importanceLearner.score(item.appName, item.channel || item.type, item.senderHash);
+      const isV = importanceLearner.isVip(item.senderHash || '');
+      const itemSim = simulate(
+        userState,
+        {
+          id: item.id,
+          appName: item.appName as AppName,
+          type: item.type,
+          title: item.title,
+          body: item.body,
+          senderImportance: s.value,
+          timestamp: item.timestamp,
+        },
+        currentTwin
+      );
+      return {
+        ...item,
+        senderImportance: s.value,
+        importanceConfidence: [s.low, s.high] as [number, number],
+        importanceWhy: s.why,
+        verdict: itemSim.verdict.decision,
+        reason: itemSim.verdict.primaryReason,
+        isVip: isV,
+      };
+    });
+
+    set({
+      role,
+      activeProfileId: targetProfile,
+      activePersona: targetProfile,
+      activeNotification: updatedNotif,
+      simulation: newSim,
+      guardStream: updatedGuard,
+      aiExplanation: null,
+    });
+  },
+
+  setWorkApps: (apps) => {
+    importanceLearner.setWorkApps(apps);
+    set({ workApps: apps });
+  },
 
   setActiveProfile: (profileId) => {
     const { profiles, twins, userState, activeNotification, simulationSeed } = get();
@@ -339,6 +489,32 @@ export const useKairosStore = create<KairosState>((set, get) => ({
       activeNotification: defaultNotification,
       simulation: initialSimulation,
       attentionSavedTodayMinutes: 47,
+    });
+  },
+
+  deleteEverything: () => {
+    importanceLearner.clearAll();
+    if (typeof localStorage !== 'undefined') {
+      localStorage.clear();
+    }
+    set({
+      checkIns: [],
+      realResponses: [],
+      twinDiffs: [],
+      experimentAnalysis: null,
+      guardStream: initialGuardItems,
+      digestList: [initialGuardItems[3]],
+      digestItems: [initialGuardItems[3]],
+      protectedList: [initialGuardItems[0], initialGuardItems[2]],
+      activeProfileId: 'arjun',
+      activePersona: 'arjun',
+      isDeviceLocked: false,
+      userState: defaultUserState,
+      activeNotification: defaultNotification,
+      simulation: initialSimulation,
+      attentionSavedTodayMinutes: 0,
+      role: 'developer',
+      workApps: ['Slack', 'GitHub'],
     });
   },
 
@@ -565,34 +741,16 @@ export const useKairosStore = create<KairosState>((set, get) => ({
 
     if (verdict === 'ALLOW NOW') {
       status = 'sent';
-      // Attempt real service worker notification if permitted
-      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-        try {
-          const reg = await navigator.serviceWorker.ready;
-          reg.showNotification(`[KAIROS] ${notif.appName}: ${notif.title}`, {
-            body: notif.body,
-            icon: '/icon.svg',
-            badge: '/icon.svg',
-            data: {
-              id: notif.id,
-              appName: notif.appName,
-              type: notif.type,
-              sentTime: Date.now(),
-            },
-          });
-        } catch {
-          // In-app fallback
-        }
-      }
+      await sendTestNotification(notif.appName, notif.body);
     } else if (verdict === 'HOLD UNTIL NEXT BREAK') {
       status = 'held';
-      saved = Math.round(sim.counterfactual.focusMinutesSaved);
+      saved = Math.max(0, Math.round(sim.counterfactual.focusMinutesSaved));
     } else if (verdict === 'BATCH IN DIGEST') {
       status = 'batched';
-      saved = Math.round(sim.counterfactual.focusMinutesSaved * 0.7);
+      saved = Math.max(0, Math.round(sim.counterfactual.focusMinutesSaved * 0.7));
     } else {
       status = 'suppressed';
-      saved = Math.round(sim.counterfactual.focusMinutesSaved);
+      saved = Math.max(0, Math.round(sim.counterfactual.focusMinutesSaved));
     }
 
     const newItem: GuardStreamItem = {
@@ -615,6 +773,10 @@ export const useKairosStore = create<KairosState>((set, get) => ({
     });
   },
 
+  sendTestNotificationNow: async (title = 'KAIROS Attention Guard', body = 'Focus firewall active: 1 notification held.') => {
+    return await sendTestNotification(title, body);
+  },
+
   overrideGuardDecision: (id, override) => {
     const { guardStream, attentionSavedTodayMinutes } = get();
     const updated = guardStream.map((item) => {
@@ -631,28 +793,241 @@ export const useKairosStore = create<KairosState>((set, get) => ({
     });
   },
 
+  recordNotificationFeedback: (id, outcome, explicit = true) => {
+    const { guardStream, userState, twins, activeProfileId } = get();
+    const target = guardStream.find((g) => g.id === id);
+    if (!target) return;
+
+    const oldImportance = target.senderImportance;
+
+    // Record in Bayesian hierarchy
+    importanceLearner.recordReaction(
+      target.appName,
+      target.channel || target.type,
+      outcome,
+      target.senderHash,
+      explicit
+    );
+
+    const s = importanceLearner.score(
+      target.appName,
+      target.channel || target.type,
+      target.senderHash
+    );
+
+    const currentTwin = twins[activeProfileId] || twins.arjun;
+    const newSim = simulate(
+      userState,
+      {
+        id: target.id,
+        appName: target.appName as AppName,
+        type: target.type,
+        title: target.title,
+        body: target.body,
+        senderImportance: s.value,
+        timestamp: target.timestamp,
+      },
+      currentTwin
+    );
+
+    const updated = guardStream.map((item) => {
+      if (item.id === id) {
+        return {
+          ...item,
+          userFeedback: outcome,
+          senderImportance: s.value,
+          importanceConfidence: [s.low, s.high] as [number, number],
+          importanceWhy: s.why,
+          importanceBefore: oldImportance,
+          importanceAfter: s.value,
+          verdict: newSim.verdict.decision,
+          reason: newSim.verdict.primaryReason,
+        };
+      }
+      return item;
+    });
+
+    set({ guardStream: updated });
+  },
+
+  toggleSenderVip: (id) => {
+    const { guardStream, userState, twins, activeProfileId } = get();
+    const target = guardStream.find((g) => g.id === id);
+    if (!target || !target.senderHash) return;
+
+    const isVipNow = importanceLearner.toggleVip(target.senderHash);
+    const s = importanceLearner.score(
+      target.appName,
+      target.channel || target.type,
+      target.senderHash
+    );
+
+    const currentTwin = twins[activeProfileId] || twins.arjun;
+    const newSim = simulate(
+      userState,
+      {
+        id: target.id,
+        appName: target.appName as AppName,
+        type: target.type,
+        title: target.title,
+        body: target.body,
+        senderImportance: s.value,
+        timestamp: target.timestamp,
+      },
+      currentTwin
+    );
+
+    const updated = guardStream.map((item) => {
+      if (item.id === id) {
+        return {
+          ...item,
+          isVip: isVipNow,
+          senderImportance: s.value,
+          importanceConfidence: [s.low, s.high] as [number, number],
+          importanceWhy: s.why,
+          verdict: newSim.verdict.decision,
+          reason: newSim.verdict.primaryReason,
+        };
+      }
+      return item;
+    });
+
+    set({ guardStream: updated });
+  },
+
+  releaseDigestNow: () => {
+    const { digestList, guardStream } = get();
+    if (digestList.length === 0) return;
+
+    sendTestNotification('KAIROS Digest Released', `${digestList.length} batched notifications delivered.`);
+    const updated = guardStream.map((item) => {
+      if (item.status === 'batched') {
+        return { ...item, status: 'sent' as const };
+      }
+      return item;
+    });
+
+    set({
+      digestList: [],
+      digestItems: [],
+      guardStream: updated,
+    });
+  },
+
   requestAiExplanation: async () => {
-    const { simulation, activeNotification, isAiGenerating } = get();
+    const { simulation, activeNotification, userState, isAiGenerating } = get();
     if (isAiGenerating) return;
 
     set({ isAiGenerating: true });
-    const fallbackTemplate = `Allowing this ${activeNotification.appName} notification is projected to divert your flow for ~${Math.round(simulation.expectedDetourMinutes)} minutes, causing ~${Math.round(simulation.expectedFocusLossMinutes)} minutes of cognitive friction.`;
+    const res = await explainVerdictWithAi(simulation, activeNotification, userState);
+    set({
+      aiExplanation: res.explanation,
+      aiOnline: res.isAiOnline,
+      isAiGenerating: false,
+    });
+  },
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+  simulateNaturalLanguageWhatIf: async (queryText) => {
+    const { userState, twins, activeProfileId } = get();
+    const parsed = await parseWhatIfNaturalLanguage(queryText);
 
-      // 3-second timeout rule with instant fallback
-      clearTimeout(timeoutId);
-      set({
-        aiExplanation: fallbackTemplate,
-        isAiGenerating: false,
-      });
-    } catch {
-      set({
-        aiExplanation: fallbackTemplate,
-        isAiGenerating: false,
-      });
-    }
+    const scoreRes = importanceLearner.score(parsed.appName, parsed.notifType);
+
+    const notif: NotificationItem = {
+      id: `query_${Date.now()}`,
+      appName: (parsed.appName as AppName) || 'Instagram',
+      type: (parsed.notifType as NotificationType) || 'social_like',
+      title: parsed.title,
+      body: parsed.body,
+      senderImportance: scoreRes.value,
+      timestamp: Date.now(),
+    };
+
+    const newState = {
+      ...userState,
+      hour: parsed.hour,
+      activity: parsed.activity as ActivityType,
+    };
+
+    const currentTwin = twins[activeProfileId] || twins.arjun;
+    const sim = simulate(newState, notif, currentTwin);
+
+    set({
+      userState: newState,
+      activeNotification: notif,
+      simulation: sim,
+      aiExplanation: null,
+    });
   },
 }));
+
+// Initialize sensor subscription so incoming notifications (native or mock ~9s) populate the feed
+if (typeof window !== 'undefined') {
+  subscribe((evt: IncomingNotificationEvent) => {
+    const state = useKairosStore.getState();
+    const currentTwin = state.twins[state.activeProfileId] || state.twins.arjun;
+
+    const s = importanceLearner.score(evt.appName, evt.channel, evt.senderHash);
+    const isV = importanceLearner.isVip(evt.senderHash);
+
+    const notif: NotificationItem = {
+      id: evt.id,
+      appName: (evt.appName as AppName) || 'Instagram',
+      type: channelToNotificationType(evt.channel),
+      title: evt.title,
+      body: evt.body,
+      senderImportance: s.value,
+      timestamp: evt.timestamp,
+    };
+
+    const sim = simulate(state.userState, notif, currentTwin);
+    const verdict = sim.verdict.decision;
+    let status: 'sent' | 'held' | 'batched' | 'suppressed' = 'suppressed';
+    let saved = 0;
+
+    if (verdict === 'ALLOW NOW') {
+      status = 'sent';
+    } else if (verdict === 'HOLD UNTIL NEXT BREAK') {
+      status = 'held';
+      saved = Math.max(0, Math.round(sim.counterfactual.focusMinutesSaved));
+    } else if (verdict === 'BATCH IN DIGEST') {
+      status = 'batched';
+      saved = Math.max(0, Math.round(sim.counterfactual.focusMinutesSaved * 0.7));
+    } else {
+      status = 'suppressed';
+      saved = Math.max(0, Math.round(sim.counterfactual.focusMinutesSaved));
+    }
+
+    const newItem: GuardStreamItem = {
+      id: evt.id,
+      appName: evt.appName,
+      type: notif.type,
+      channel: evt.channel,
+      title: evt.title,
+      body: evt.body,
+      senderRaw: evt.senderRaw,
+      senderHash: evt.senderHash,
+      senderImportance: s.value,
+      importanceConfidence: [s.low, s.high],
+      importanceWhy: s.why,
+      timestamp: evt.timestamp,
+      verdict,
+      reason: sim.verdict.primaryReason,
+      savedMinutes: saved,
+      status,
+      isVip: isV,
+    };
+
+    useKairosStore.setState((prev) => {
+      const nextStream = [newItem, ...prev.guardStream.slice(0, 49)];
+      const nextDigest =
+        status === 'batched' ? [newItem, ...prev.digestList.slice(0, 19)] : prev.digestList;
+      return {
+        guardStream: nextStream,
+        digestList: nextDigest,
+        digestItems: nextDigest,
+        attentionSavedTodayMinutes: prev.attentionSavedTodayMinutes + saved,
+      };
+    });
+  });
+}

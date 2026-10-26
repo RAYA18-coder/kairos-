@@ -5,7 +5,7 @@
  * KAIROS Service Worker: App-shell cache & real notification telemetry
  */
 
-const CACHE_NAME = 'kairos-v1';
+const CACHE_NAME = 'kairos-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -59,6 +59,8 @@ self.addEventListener('activate', (event) => {
 // Cache-first / Network-fallback fetch strategy for offline independence
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  // Let the browser stream video itself (range requests don't work with cache-first)
+  if (event.request.destination === 'video' || event.request.headers.has('range')) return;
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) return cachedResponse;

@@ -4,367 +4,405 @@
  */
 
 import React, { useState } from 'react';
-import { useKairosStore } from '../store/useKairosStore';
+import { useKairosStore, GuardStreamItem } from '../store/useKairosStore';
+import {
+  GlassCard,
+  ClayButton,
+  ClayChip,
+  NeuSegmented,
+} from '../components/ui/ReferenceComponents';
+import { BottomSheet } from '../components/BottomSheet';
 import {
   Shield,
-  Check,
-  X,
-  Clock,
-  Layers,
   Bell,
-  BellRing,
-  Send,
-  Database,
-  Smartphone,
+  ThumbsUp,
+  ThumbsDown,
+  Star,
   Sparkles,
+  Inbox,
+  Send,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  Zap,
+  Info,
 } from 'lucide-react';
-import { triggerHaptic } from '../lib/haptics';
-import { NotificationItem } from '../engine/types';
 
 export const GuardScreen: React.FC = () => {
   const guardStream = useKairosStore((s) => s.guardStream);
-  const digestItems = useKairosStore((s) => s.digestItems);
+  const digestList = useKairosStore((s) => s.digestList);
+  const releaseDigestNow = useKairosStore((s) => s.releaseDigestNow);
+  const recordNotificationFeedback = useKairosStore((s) => s.recordNotificationFeedback);
+  const toggleSenderVip = useKairosStore((s) => s.toggleSenderVip);
+  const sendTestNotificationNow = useKairosStore((s) => s.sendTestNotificationNow);
+  const role = useKairosStore((s) => s.role);
   const attentionSavedTodayMinutes = useKairosStore((s) => s.attentionSavedTodayMinutes);
-  const overrideGuardDecision = useKairosStore((s) => s.overrideGuardDecision);
-  const notificationPermission = useKairosStore((s) => s.notificationPermission);
-  const requestNotificationPermission = useKairosStore((s) => s.requestNotificationPermission);
-  const sendRealNotification = useKairosStore((s) => s.sendRealNotification);
-  const syncWithIndexedDbTelemetry = useKairosStore((s) => s.syncWithIndexedDbTelemetry);
 
-  const [activeTab, setActiveTab] = useState<'stream' | 'lab'>('stream');
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [testNotificationSent, setTestNotificationSent] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'held' | 'allowed'>('all');
+  const [selectedItem, setSelectedItem] = useState<GuardStreamItem | null>(null);
+  const [isTestSending, setIsTestSending] = useState(false);
 
-  const getVerdictStyle = (verdict: string) => {
-    switch (verdict) {
-      case 'ALLOW NOW':
-        return 'text-[#C6FF3D] border-[#C6FF3D]/30 bg-[#C6FF3D]/10';
-      case 'HOLD UNTIL NEXT BREAK':
-        return 'text-amber-400 border-amber-400/30 bg-amber-400/10';
-      case 'BATCH IN DIGEST':
-        return 'text-sky-400 border-sky-400/30 bg-sky-400/10';
-      case 'SUPPRESS':
-        return 'text-[#FF6B4A] border-[#FF6B4A]/30 bg-[#FF6B4A]/10';
-      default:
-        return 'text-zinc-400 border-zinc-700 bg-zinc-800/40';
+  const filteredItems = guardStream.filter((item) => {
+    if (filter === 'held') {
+      return item.status === 'held' || item.status === 'batched' || item.status === 'suppressed';
     }
+    if (filter === 'allowed') {
+      return item.status === 'sent';
+    }
+    return true;
+  });
+
+  const handleTestAlert = async () => {
+    setIsTestSending(true);
+    await sendTestNotificationNow();
+    setTimeout(() => setIsTestSending(false), 800);
   };
 
-  const handleSendTestAlert = async (type: 'distraction' | 'urgent') => {
-    triggerHaptic('heavy');
-    const notif: NotificationItem =
-      type === 'urgent'
-        ? {
-            id: `real_${Date.now()}`,
-            appName: 'System',
-            type: 'otp',
-            title: 'Security Verification',
-            body: '739104 is your temporary authentication passcode.',
-            senderImportance: 1.0,
-            timestamp: Date.now(),
-          }
-        : {
-            id: `real_${Date.now()}`,
-            appName: 'Instagram',
-            type: 'social_like',
-            title: 'Instagram',
-            body: 'sarah_m and 3 others liked your recent photo.',
-            senderImportance: 0.1,
-            timestamp: Date.now(),
-          };
-
-    await sendRealNotification(notif);
-    setTestNotificationSent(type);
-    setTimeout(() => setTestNotificationSent(null), 3000);
-  };
-
-  const handleSyncTelemetry = async () => {
-    triggerHaptic('medium');
-    setIsSyncing(true);
-    await syncWithIndexedDbTelemetry();
-    setTimeout(() => setIsSyncing(false), 800);
+  const getAppIcon = (appName: string) => {
+    const lower = appName.toLowerCase();
+    if (lower.includes('instagram')) {
+      return (
+        <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-emerald-600 via-pink-600 to-amber-500 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-md">
+          IG
+        </div>
+      );
+    }
+    if (lower.includes('slack')) {
+      return (
+        <div className="w-9 h-9 rounded-2xl bg-[#4A154B] text-[#E01E5A] border border-white/10 flex items-center justify-center font-bold text-xs shrink-0 shadow-md">
+          #
+        </div>
+      );
+    }
+    if (lower.includes('whatsapp')) {
+      return (
+        <div className="w-9 h-9 rounded-2xl bg-[#25D366] text-[#081B12] flex items-center justify-center font-bold text-xs shrink-0 shadow-md">
+          WA
+        </div>
+      );
+    }
+    if (lower.includes('system') || lower.includes('auth') || lower.includes('bank')) {
+      return (
+        <div className="w-9 h-9 rounded-2xl bg-[#7FE3C0] text-[#081B12] flex items-center justify-center font-bold text-xs shrink-0 shadow-md shadow-[#7FE3C0]/20">
+          <Shield className="w-4 h-4" />
+        </div>
+      );
+    }
+    return (
+      <div className="w-9 h-9 rounded-2xl bg-[#123628] text-[#7FE3C0] border border-[#7FE3C0]/30 flex items-center justify-center font-bold text-xs shrink-0">
+        <Bell className="w-4 h-4" />
+      </div>
+    );
   };
 
   return (
-    <div className="relative z-10 min-h-[calc(100dvh-130px)] px-4 py-3 pb-32 space-y-4">
-      {/* Top Banner */}
-      <div>
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-[10px] font-mono tracking-widest uppercase text-zinc-500">
-              ACTIVE DEFENSE
+    <div className="flex flex-col gap-5 px-4 pt-4 pb-28 text-left animate-in fade-in duration-200">
+      {/* 1. Header with Live Status & Test Button */}
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#7FE3C0] animate-pulse" />
+            <span className="text-xs font-semibold text-[#7FE3C0] tracking-wide uppercase">
+              On-Device Firewall
             </span>
-            <h2 className="text-lg font-light text-white font-sans">Attention Guard Stream</h2>
           </div>
-          <div className="px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-xs font-mono text-[#C6FF3D]">
-            +{attentionSavedTodayMinutes}m saved
-          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-[#F2F7F3] mt-0.5">
+            Attention Guard
+          </h1>
         </div>
-        <p className="text-xs text-zinc-400 font-sans mt-1">
-          Real-time cognitive firewall. Suppresses algorithmic hooks, batches digests, and admits high-utility alerts.
-        </p>
+
+        <ClayButton
+          variant="sage"
+          size="sm"
+          isLoading={isTestSending}
+          onClick={handleTestAlert}
+          leftIcon={<Send className="w-3.5 h-3.5" />}
+        >
+          Send Test
+        </ClayButton>
       </div>
 
-      {/* Mode Switcher: Live Stream vs Real Notification Lab */}
-      <div className="flex rounded-xl bg-white/[0.03] p-1 border border-white/[0.06] text-xs font-mono">
-        <button
-          onClick={() => {
-            triggerHaptic('selection');
-            setActiveTab('stream');
-          }}
-          className={`flex-1 py-1.5 rounded-lg transition-all ${
-            activeTab === 'stream'
-              ? 'bg-white/10 text-white font-medium shadow-sm'
-              : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          Guard Stream ({guardStream.length})
-        </button>
-        <button
-          onClick={() => {
-            triggerHaptic('selection');
-            setActiveTab('lab');
-          }}
-          className={`flex-1 py-1.5 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-            activeTab === 'lab'
-              ? 'bg-white/10 text-white font-medium shadow-sm'
-              : 'text-zinc-500 hover:text-zinc-300'
-          }`}
-        >
-          <BellRing className="w-3.5 h-3.5 text-[#C6FF3D]" />
-          <span>Real Notification Lab</span>
-        </button>
-      </div>
-
-      {activeTab === 'lab' ? (
-        /* REAL NOTIFICATION LAB */
-        <div className="space-y-3.5 animate-in fade-in duration-200">
-          <div className="p-4 rounded-2xl bg-[#090d14]/90 border border-[#C6FF3D]/30 backdrop-blur-md space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Smartphone className="w-4 h-4 text-[#C6FF3D]" />
-                <span className="text-xs font-mono uppercase tracking-wider text-white">
-                  DEVICE NOTIFICATION INTEGRATION
-                </span>
-              </div>
-              <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-white/[0.04] text-zinc-300">
-                STATUS: {notificationPermission.toUpperCase()}
+      {/* 2. Personalization & Role Badge Card */}
+      <GlassCard className="p-4 flex items-center justify-between gap-3 border border-[#7FE3C0]/20 bg-[#0B2A1E]/40">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-2xl bg-[#0E2F22] text-[#7FE3C0] border border-[#7FE3C0]/30 flex items-center justify-center shrink-0">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-[#F2F7F3]">
+                Role Profile: <span className="text-[#7FE3C0] capitalize">{role}</span>
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#7FE3C0]/15 text-[#7FE3C0] font-mono-numbers">
+                Hierarchical Beta
               </span>
             </div>
-
-            <p className="text-xs text-zinc-300 font-sans leading-relaxed">
-              KAIROS connects directly to your device Service Worker (<code className="text-[#C6FF3D] font-mono text-[11px]">/public/sw.js</code>). Real notifications dispatched here log your actual dismissals and tap latencies into an encrypted on-device IndexedDB store.
+            <p className="text-[11px] text-[rgba(242,247,243,0.62)] mt-0.5">
+              Learns importance by content type and sender, not just app name.
             </p>
-
-            {notificationPermission !== 'granted' ? (
-              <button
-                onClick={async () => {
-                  triggerHaptic('heavy');
-                  await requestNotificationPermission();
-                }}
-                className="w-full py-2.5 px-3 rounded-xl bg-[#C6FF3D] hover:bg-[#b2eb30] text-black font-mono text-xs font-medium uppercase tracking-wider transition-all flex items-center justify-center gap-2"
-              >
-                <Bell className="w-3.5 h-3.5 fill-current" />
-                <span>REQUEST SYSTEM PERMISSION</span>
-              </button>
-            ) : (
-              <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04] text-xs font-mono text-[#C6FF3D] flex items-center gap-2">
-                <Check className="w-4 h-4 shrink-0" />
-                <span>Native Notification API permissions granted & active.</span>
-              </div>
-            )}
           </div>
+        </div>
 
-          {/* Test Signal Triggers */}
-          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-3">
-            <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider block">
-              FIRE TEST SIGNALS THROUGH TWIN ENGINE
-            </span>
+        <div className="text-right shrink-0">
+          <span className="text-[10px] uppercase tracking-wider text-[rgba(242,247,243,0.5)] block">
+            Saved Today
+          </span>
+          <span className="text-sm font-bold font-mono-numbers text-[#7FE3C0]">
+            +{attentionSavedTodayMinutes}m
+          </span>
+        </div>
+      </GlassCard>
 
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => handleSendTestAlert('distraction')}
-                className="p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-[#FF6B4A]/30 text-left space-y-1 transition-all group"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono text-[#FF6B4A]">Social Like</span>
-                  <Send className="w-3 h-3 text-[#FF6B4A] opacity-60 group-hover:opacity-100" />
-                </div>
-                <p className="text-[11px] text-zinc-400 font-sans">
-                  Predicted detour ~17m. Twin triggers <strong className="text-white">SUPPRESS</strong>.
-                </p>
-              </button>
-
-              <button
-                onClick={() => handleSendTestAlert('urgent')}
-                className="p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-[#C6FF3D]/30 text-left space-y-1 transition-all group"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono text-[#C6FF3D]">OTP / Security</span>
-                  <Send className="w-3 h-3 text-[#C6FF3D] opacity-60 group-hover:opacity-100" />
-                </div>
-                <p className="text-[11px] text-zinc-400 font-sans">
-                  Utility = 1.0. Twin triggers <strong className="text-white">ALLOW NOW</strong>.
-                </p>
-              </button>
+      {/* 3. Scheduled Digest Banner (when items are batched) */}
+      {digestList.length > 0 && (
+        <GlassCard className="p-4 flex items-center justify-between gap-3 border border-[#6EC8FF]/40 bg-[#6EC8FF]/10">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-[#6EC8FF]/20 text-[#6EC8FF] flex items-center justify-center shrink-0">
+              <Inbox className="w-4 h-4" />
             </div>
-
-            {testNotificationSent && (
-              <div className="p-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-xs font-mono text-[#C6FF3D] flex items-center gap-1.5">
-                <Check className="w-3.5 h-3.5" />
-                <span>Dispatched through engine. Guard list updated below.</span>
-              </div>
-            )}
-          </div>
-
-          {/* IndexedDB Telemetry Sync Card */}
-          <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex items-center justify-between gap-3">
             <div>
-              <div className="flex items-center gap-1.5">
-                <Database className="w-3.5 h-3.5 text-zinc-400" />
-                <span className="text-xs font-mono uppercase text-white">
-                  LOCAL INDEXEDDB TELEMETRY
-                </span>
-              </div>
-              <p className="text-[11px] text-zinc-400 font-sans mt-0.5">
-                Reads offline tap/dismiss events and applies online Bayesian weighting (2.0x).
+              <p className="text-xs font-bold text-[#F2F7F3]">
+                Scheduled Digest ({digestList.length} held)
+              </p>
+              <p className="text-[11px] text-[rgba(242,247,243,0.65)]">
+                Queued for 21:00 or your next natural focus break
               </p>
             </div>
-
-            <button
-              onClick={handleSyncTelemetry}
-              disabled={isSyncing}
-              className="px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-xs font-mono text-zinc-300 hover:text-white shrink-0 transition-all flex items-center gap-1.5"
-            >
-              <span>{isSyncing ? 'Syncing...' : 'Sync Telemetry'}</span>
-            </button>
           </div>
-        </div>
-      ) : (
-        /* STREAM & DIGEST LIST */
-        <>
-          {/* DIGEST CARD: Batching held items for next break */}
-          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] backdrop-blur-md space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-sky-400" />
-                <span className="text-xs font-mono uppercase tracking-wider text-white">
-                  COGNITIVE DIGEST BATCH
-                </span>
-              </div>
-              <span className="text-[11px] font-mono text-zinc-400 flex items-center gap-1">
-                <Clock className="w-3 h-3 text-sky-400" /> Release ~22:50
-              </span>
-            </div>
+          <ClayButton
+            variant="mint"
+            size="sm"
+            onClick={releaseDigestNow}
+            className="text-xs px-3"
+          >
+            Release Now
+          </ClayButton>
+        </GlassCard>
+      )}
 
-            <p className="text-xs text-zinc-400 font-sans">
-              {digestItems.length} notifications held to maintain uninterrupted neural state.
+      {/* 4. Filter Switcher (Neumorphic Segmented) */}
+      <NeuSegmented
+        value={filter}
+        onChange={(val) => setFilter(val as any)}
+        options={[
+          { id: 'all', label: `All Stream (${guardStream.length})` },
+          { id: 'held', label: 'Held / Suppressed' },
+          { id: 'allowed', label: 'Allowed' },
+        ]}
+      />
+
+      {/* 5. Live Interception Stream List */}
+      <div className="flex flex-col gap-3">
+        {filteredItems.length === 0 ? (
+          <GlassCard className="p-8 text-center flex flex-col items-center gap-3">
+            <div className="w-12 h-12 rounded-3xl bg-[#0E2F22] text-[#7FE3C0] border border-[#7FE3C0]/30 flex items-center justify-center">
+              <Shield className="w-6 h-6 text-[#7FE3C0]" />
+            </div>
+            <h3 className="text-base font-bold text-[#F2F7F3]">No Interceptions Yet</h3>
+            <p className="text-xs text-[rgba(242,247,243,0.62)] max-w-xs leading-relaxed">
+              KAIROS is actively evaluating incoming phone signals on-device. Tap Send Test to simulate an alert.
             </p>
+            <ClayButton variant="sage" size="sm" onClick={handleTestAlert} className="mt-2">
+              Emit Test Alert
+            </ClayButton>
+          </GlassCard>
+        ) : (
+          filteredItems.map((item) => {
+            const timeAgo = Math.max(1, Math.round((Date.now() - item.timestamp) / 60000));
+            const hasConfidence = !!item.importanceConfidence;
+            const isVip = item.isVip;
 
-            <div className="space-y-1.5 pt-1">
-              {digestItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="p-2 rounded-xl bg-white/[0.02] border border-white/[0.04] flex items-center justify-between text-xs"
-                >
-                  <div className="truncate pr-2">
-                    <span className="font-medium text-zinc-300 block truncate">{item.appName}</span>
-                    <span className="text-[11px] text-zinc-500 truncate block">{item.body}</span>
-                  </div>
-                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 shrink-0">
-                    BATCHED
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* INCOMING STREAM LIST */}
-          <div className="space-y-2.5">
-            <span className="text-[10px] font-mono tracking-wider uppercase text-zinc-500 block">
-              SIGNAL INTERCEPTION STREAM ({guardStream.length})
-            </span>
-
-            {guardStream.map((item) => {
-              const isOverridden = !!item.userOverride;
-
-              return (
-                <div
-                  key={item.id}
-                  className="p-3.5 rounded-2xl bg-[#090d14]/90 border border-white/[0.06] backdrop-blur-md space-y-2.5 transition-all"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 truncate">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium font-sans text-white">{item.appName}</span>
-                        <span className="text-[10px] font-mono text-zinc-500 uppercase px-1.5 py-0.5 rounded bg-white/[0.04]">
-                          {item.type}
+            return (
+              <GlassCard
+                key={item.id}
+                className="p-4 flex flex-col gap-3 transition-colors duration-150"
+              >
+                {/* Top Row: App Icon, Names, Channels, Verdict Chip */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {getAppIcon(item.appName)}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-bold text-[#F2F7F3] truncate">
+                          {item.appName}
                         </span>
+                        {item.channel && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-[rgba(242,247,243,0.7)] capitalize">
+                            {item.channel}
+                          </span>
+                        )}
+                        {isVip && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-[#FFC44D]/20 text-[#FFC44D] border border-[#FFC44D]/30 font-bold">
+                            VIP
+                          </span>
+                        )}
                       </div>
-                      <p className="text-xs text-zinc-300 font-sans mt-0.5 truncate">{item.title}</p>
-                      <p className="text-[11px] text-zinc-500 font-sans mt-0.5 line-clamp-2">
-                        "{item.body}"
-                      </p>
-                    </div>
-
-                    <div
-                      className={`px-2.5 py-1 rounded-full border text-[10px] font-mono font-semibold tracking-wider uppercase shrink-0 ${getVerdictStyle(
-                        item.userOverride || item.verdict
-                      )}`}
-                    >
-                      {item.userOverride ? `OVERRIDE: ${item.userOverride}` : item.verdict}
+                      <span className="text-[10px] text-[rgba(242,247,243,0.5)] font-mono-numbers">
+                        {timeAgo}m ago
+                      </span>
                     </div>
                   </div>
 
-                  {/* Engine Reason */}
-                  <div className="text-[11px] text-zinc-400 font-sans bg-white/[0.02] p-2 rounded-lg border border-white/[0.03]">
-                    {item.reason}
-                  </div>
+                  <ClayChip verdict={item.verdict} size="sm" />
+                </div>
 
-                  {/* Override / Teach Actions */}
-                  <div className="flex items-center justify-between pt-1 border-t border-white/[0.04]">
-                    <span className="text-[10px] font-mono text-zinc-500">
-                      {isOverridden ? 'Twin updated with feedback' : 'Did twin judge correctly?'}
+                {/* Body Text */}
+                <p className="text-xs text-[#F2F7F3] line-clamp-2 leading-relaxed">
+                  {item.body || item.title}
+                </p>
+
+                {/* Engine Reason + Personal Importance Box */}
+                <div className="p-3 rounded-2xl bg-[#061A12]/80 border border-white/5 flex flex-col gap-1.5 text-xs">
+                  <div className="flex items-center justify-between text-[rgba(242,247,243,0.7)]">
+                    <span className="text-[11px]">
+                      Importance Score:{' '}
+                      <strong className="text-[#7FE3C0] font-mono-numbers">
+                        {Math.round(item.senderImportance * 100)}%
+                      </strong>
+                      {hasConfidence && (
+                        <span className="font-mono-numbers text-[10px] text-[rgba(242,247,243,0.5)] ml-1">
+                          [{Math.round(item.importanceConfidence![0] * 100)}% - {Math.round(item.importanceConfidence![1] * 100)}%]
+                        </span>
+                      )}
                     </span>
 
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => {
-                          triggerHaptic('selection');
-                          overrideGuardDecision(item.id, 'ALLOWED');
-                        }}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-mono flex items-center gap-1 border transition-all ${
-                          item.userOverride === 'ALLOWED'
-                            ? 'bg-[#C6FF3D]/20 border-[#C6FF3D] text-[#C6FF3D]'
-                            : 'bg-white/[0.03] border-white/[0.06] text-zinc-400 hover:text-white'
-                        }`}
-                      >
-                        <Check className="w-3 h-3" />
-                        <span>Allow</span>
-                      </button>
+                    {/* Transition from before -> after feedback */}
+                    {item.importanceBefore !== undefined && item.importanceAfter !== undefined && (
+                      <span className="text-[#C4A7E7] font-mono-numbers text-[11px] font-bold">
+                        {Math.round(item.importanceBefore * 100)}% → {Math.round(item.importanceAfter * 100)}%
+                      </span>
+                    )}
+                  </div>
 
-                      <button
-                        onClick={() => {
-                          triggerHaptic('selection');
-                          overrideGuardDecision(item.id, 'SUPPRESSED');
-                        }}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-mono flex items-center gap-1 border transition-all ${
-                          item.userOverride === 'SUPPRESSED'
-                            ? 'bg-[#FF6B4A]/20 border-[#FF6B4A] text-[#FF6B4A]'
-                            : 'bg-white/[0.03] border-white/[0.06] text-zinc-400 hover:text-white'
-                        }`}
-                      >
-                        <X className="w-3 h-3" />
-                        <span>Suppress</span>
-                      </button>
-                    </div>
+                  <p className="text-[11px] text-[rgba(242,247,243,0.75)]">
+                    <strong className="text-[#F2F7F3]">Reason: </strong>
+                    {item.importanceWhy || item.reason}
+                  </p>
+                </div>
+
+                {/* Feedback Controls & VIP Toggle */}
+                <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                  {/* Feedback: Worth it / Not worth it */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => recordNotificationFeedback(item.id, 'worth_it')}
+                      className={`text-[11px] px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 font-semibold transition-all ${
+                        item.userFeedback === 'worth_it'
+                          ? 'bg-[#7FE3C0] text-[#081B12] shadow-sm'
+                          : 'bg-white/5 text-[rgba(242,247,243,0.7)] hover:text-[#F2F7F3] hover:bg-white/10'
+                      }`}
+                    >
+                      <ThumbsUp className="w-3 h-3" />
+                      <span>Worth it</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => recordNotificationFeedback(item.id, 'hijacked')}
+                      className={`text-[11px] px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 font-semibold transition-all ${
+                        item.userFeedback === 'hijacked'
+                          ? 'bg-[#FF6B4A] text-white shadow-sm'
+                          : 'bg-white/5 text-[rgba(242,247,243,0.7)] hover:text-[#F2F7F3] hover:bg-white/10'
+                      }`}
+                    >
+                      <ThumbsDown className="w-3 h-3" />
+                      <span>Distracting</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* VIP Sender Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => toggleSenderVip(item.id)}
+                      className={`text-[11px] px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-all ${
+                        isVip
+                          ? 'bg-[#FFC44D]/25 text-[#FFC44D] border border-[#FFC44D]/40 font-bold'
+                          : 'text-[rgba(242,247,243,0.6)] hover:text-[#F2F7F3] hover:bg-white/5'
+                      }`}
+                    >
+                      <Star className={`w-3 h-3 ${isVip ? 'fill-[#FFC44D]' : ''}`} />
+                      <span>{isVip ? 'VIP' : 'Mark VIP'}</span>
+                    </button>
+
+                    {/* Forensic Details button */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedItem(item)}
+                      className="p-1.5 rounded-xl text-[rgba(242,247,243,0.5)] hover:text-[#7FE3C0] hover:bg-white/5 transition-colors"
+                      title="Forensic Audit"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
-              );
-            })}
+              </GlassCard>
+            );
+          })
+        )}
+      </div>
+
+      {/* Forensic Details BottomSheet */}
+      <BottomSheet
+        isOpen={!!selectedItem}
+        onClose={() => setSelectedItem(null)}
+        title="Notification Forensics"
+        subtitle="On-device attention loss analysis &amp; telemetry audit"
+      >
+        {selectedItem && (
+          <div className="flex flex-col gap-4 pb-6 text-left">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold text-[#F2F7F3]">
+                {selectedItem.appName}
+              </span>
+              <ClayChip verdict={selectedItem.verdict} size="sm" />
+            </div>
+
+            <p className="text-xs text-[rgba(242,247,243,0.85)] bg-[#0A1F17] p-3.5 rounded-2xl border border-white/10">
+              "{selectedItem.body}"
+            </p>
+
+            <div className="p-3.5 rounded-2xl bg-[#061A12] text-xs text-[rgba(242,247,243,0.7)] flex flex-col gap-2 border border-white/5">
+              <div className="flex justify-between items-center">
+                <span>Attention Saved:</span>
+                <strong className="text-[#7FE3C0] font-mono-numbers">
+                  +{selectedItem.savedMinutes} min
+                </strong>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Sender Privacy Hash:</span>
+                <strong className="font-mono-numbers text-[rgba(242,247,243,0.5)] text-[11px]">
+                  {selectedItem.senderHash || 'anonymous'}
+                </strong>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Interception Status:</span>
+                <span className="text-[#F2F7F3] capitalize font-semibold">
+                  {selectedItem.status}
+                </span>
+              </div>
+              <div className="pt-2 border-t border-white/5">
+                <span className="text-[11px] text-[rgba(242,247,243,0.5)] block mb-1">
+                  Causal Mechanism:
+                </span>
+                <p className="text-xs text-[#F2F7F3]">
+                  {selectedItem.reason}
+                </p>
+              </div>
+            </div>
+
+            <ClayButton
+              variant="sage"
+              size="md"
+              onClick={() => setSelectedItem(null)}
+              className="w-full mt-2"
+            >
+              Close Forensics
+            </ClayButton>
           </div>
-        </>
-      )}
+        )}
+      </BottomSheet>
     </div>
   );
 };

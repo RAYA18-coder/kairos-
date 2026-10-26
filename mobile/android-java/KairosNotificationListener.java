@@ -1,6 +1,7 @@
 package com.shrii.kairos;
 
 import android.app.Notification;
+import android.app.NotificationChannel;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
@@ -43,6 +44,10 @@ public class KairosNotificationListener extends NotificationListenerService {
             e.put("appCategory", AppCategory.of(this, sbn.getPackageName()));
             e.put("androidCategory", n.category == null ? "" : n.category);
             e.put("importance", getImportance(sbn));
+            // Channel tells us the TYPE inside an app (DMs vs likes vs comments) without reading any text
+            e.put("channelId", n.getChannelId() == null ? "" : n.getChannelId());
+            e.put("channelName", getChannelName(sbn));
+            e.put("isGroup", n.extras != null && n.extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false));
             e.put("senderHash", senderHash(this, n.extras));
             e.put("timeMs", sbn.getPostTime());
             store(this, e);
@@ -79,6 +84,18 @@ public class KairosNotificationListener extends NotificationListenerService {
             if (rm != null && rm.getRanking(sbn.getKey(), r)) return r.getImportance();
         } catch (Exception ignored) { }
         return -1;
+    }
+
+    private String getChannelName(StatusBarNotification sbn) {
+        try {
+            RankingMap rm = getCurrentRanking();
+            Ranking r = new Ranking();
+            if (rm != null && rm.getRanking(sbn.getKey(), r)) {
+                NotificationChannel ch = r.getChannel();
+                if (ch != null && ch.getName() != null) return ch.getName().toString();
+            }
+        } catch (Exception ignored) { }
+        return "";
     }
 
     private static String senderHash(Context ctx, Bundle extras) {
